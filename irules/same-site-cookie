@@ -1,0 +1,118 @@
+when RULE_INIT {
+
+
+	# Simple iRule to test parsing the User-Agent header to identify browsers that don't support SameSite=None
+	# Most incompatible browsers can be identified by string matches (chrome, chromium, safari, etc)
+	# For UC Browser we need to check if the version is equal to or greater than 12.13.2
+	# 
+	# We abuse RULE_INIT to run the iRule code and not deal with generating traffic to a virtual server
+	# We skip using static:: namespace for variables, as this isn't going to be used in production on a virtual server.
+
+	# Only run this on the first TMM so we get a single set of logs per test
+	if { not ([TMM::cmp_unit] == 0 && [TMM::cmp_group] == 0)}{ return }
+
+	# Create a list of user-agent strings to test the iRule logic
+
+	# UC Browser user-agent test strings
+	# from: https://developers.whatismybrowser.com/useragents/explore/software_name/uc-browser/
+	set uas [list \
+		{Mozilla/5.0 (Linux; U; Android 6.0.1; zh-CN; F5121 Build/34.0.A.1.247) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/40.0.2214.89 UCBrowser/12.13.10.944 Mobile Safari/537.36} \
+		{Mozilla/5.0 (Linux; U; Android 6.0.1; zh-CN; F5121 Build/34.0.A.1.247) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/40.0.2214.89 UCBrowser/12.14.10.944 Mobile Safari/537.36} \
+		{Mozilla/5.0 (Linux; U; Android 6.0.1; zh-CN; F5121 Build/34.0.A.1.247) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/40.0.2214.89 UCBrowser/13.14.10.944 Mobile Safari/537.36} \
+		{Mozilla/5.0 (Linux; U; Android 6.0.1; zh-CN; F5121 Build/34.0.A.1.247) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/40.0.2214.89 UCBrowser/11.5.1.944 Mobile Safari/537.36} \
+		{Mozilla/5.0 (Linux; U; Android 4.4.2; zh-CN; HUAWEI MT7-TL00 Build/HuaweiMT7-TL00) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/40.0.2214.89 UCBrowser/11.3.8.909 Mobile Safari/537.36} \
+		{Mozilla/5.0 (Linux; U; Android 8.1.0; zh-CN; EML-AL00 Build/HUAWEIEML-AL00) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/57.0.2987.108 baidu.sogo.uc.UCBrowser/11.9.4.974 UWS/2.13.1.48 Mobile Safari/537.36 AliApp(DingTalk/4.5.11) com.alibaba.android.rimet/10487439 Channel/227200 language/zh-CN} \
+		{Mozilla/5.0 (X11; U; Linux i686; en-US) U2/1.0.0 UCBrowser/9.3.1.344} \
+		{Mozilla/5.0(Linux;U;Android 5.1.1;zh-CN;OPPO A33 Build/LMY47V) AppleWebKit/537.36(KHTML,like Gecko) Version/4.0 Chrome/40.0.2214.89 UCBrowser/11.7.0.953 Mobile Safari/537.36} \
+		{UCWEB/2.0 (Java; U; MIDP-2.0; Nokia203/20.37) U2/1.0.0 UCBrowser/8.7.0.218 U2/1.0.0 Mobile} \
+	]
+	# Chrome user-agent test strings
+	# from: https://developers.whatismybrowser.com/useragents/explore/software_name/chrome/
+	lappend uas {Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36} \
+		{Mozilla/5.0 (Linux; Android 6.0.1; RedMi Note 5 Build/RB3N5C; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/68.0.3440.91 Mobile Safari/537.36} \
+		{Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36} \
+		{Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36} \
+		{Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.157 Safari/537.36} \
+		{Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36} \
+		{Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.90 Safari/537.36 }
+
+
+	# Chromium user-agent test strings
+	# from: https://developers.whatismybrowser.com/useragents/explore/software_name/chromium/
+	lappend uas {Mozilla/5.0 (Linux; Ubuntu 14.04) AppleWebKit/537.36 Chromium/35.0.1870.2 Safari/537.36} \
+		{Mozilla/5.0 (Linux; Ubuntu 14.04 like Android 4.4) AppleWebKit/537.36 Chromium/35.0.1870.2 Mobile Safari/537.36} \
+		{Mozilla/5.0 (SMART-TV; X11; Linux armv7l) AppleWebKit/537.42 (KHTML, like Gecko) Chromium/25.0.1349.2 Chrome/25.0.1349.2 Safari/537.42} \
+		{Mozilla/5.0 (Linux; Ubuntu 15.04 like Android 4.4) AppleWebKit/537.36 Chromium/53.0.2785.143 Mobile Safari/537.36} \
+		{Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/534.30 (KHTML, like Gecko) Ubuntu/11.04 Chromium/12.0.742.112 Chrome/12.0.742.112 Safari/534.30} \
+		{Mozilla/5.0 (X11; Linux i686) AppleWebKit/534.30 (KHTML, like Gecko) Ubuntu/10.10 Chromium/12.0.742.112 Chrome/12.0.742.112 Safari/534.30} \
+		{Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/534.30 (KHTML, like Gecko) Ubuntu/10.10 Chromium/12.0.742.112 Chrome/12.0.742.112 Safari/534.30} \
+
+
+	log local0. "\$uas ([llength $uas]): $uas"
+
+
+	# Loop through each sample user-agent
+	foreach ua $uas {
+
+
+		log local0. "[string repeat "=" 40]"
+		log local0. "Checking: $ua"
+
+
+
+		#
+		# This is the code we're actually testing that could be used in another iRule
+		#
+		switch -glob [string tolower $ua] {
+			{*chrome/5[1-9].[0-9]*} -
+			{*chrome/6[0-6].[0-9]*} -
+			{*ip?*; cpu *os 12*applewebkit*} -
+			{*macintosh;*mac os x 10_14*version*safari*} -
+			{mozilla*macintosh;*mac os x 10_14*applewebkit*khtml, like gecko*} -
+			{*chromium/5[1-9].[0-9]*} -
+			{*chromium/6[0-6].[0-9]*} {
+				log local0. "Matched incompatible user-agent in the switch statement for $ua"
+				set browser_can_handle_samesite_none 0
+			}
+			{*ucbrowser/*} {
+				# For UCBrowser parsing, assume compatible and then remove the incompatible versions
+				set browser_can_handle_samesite_none 1
+				log local0. ""
+
+
+				# Split the UA string on ucbrowser/
+				set ua [getfield [string tolower $ua] "ucbrowser/" 2]
+
+
+				log local0. "\$ua: $ua"
+				# Get the first three sets of the version number
+				if {[scan $ua {%d.%d.%d} v1 v2 v3] == 3}{
+			
+					log local0. "scanned: $v1, $v2, $v3"
+			
+					# Check if the version string is higher than 12.13.2
+					if {$v1 < 12}{
+						log local0. "\$v1 < 12"
+						set browser_can_handle_samesite_none 0
+					}  elseif {$v1 == 12 && $v2 < 13}{
+						# 12.y.z
+						log local0. "\$v1 == 12 and \$v2 < 13"
+						set browser_can_handle_samesite_none 0
+					} elseif {$v2==13 && $v3 < 2}{
+						# 12.13.z
+						log local0. "\$v2 == 13 and \$v3 < 2"
+						set browser_can_handle_samesite_none 0
+					}
+				}
+				log local0. "\$browser_can_handle_samesite_none = $browser_can_handle_samesite_none"
+			}
+			default {
+				log local0. "No match for this user-agent string"
+			}
+		}
+		#
+		# This is the end of the code we're actually testing that could be used in another iRule
+		# After detecting user-agents that don't support SameSite=None in HTTP_REQUEST
+		#  you can check for $$browser_can_handle_samesite_none=1 in a response event like HTTP_RESPONSE_RELEASE
+	}
+}
